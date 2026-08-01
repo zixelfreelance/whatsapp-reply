@@ -1,0 +1,21 @@
+{
+  "name": "whatsapp-reply-extension",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "build": "wxt build",
+    "watch": "wxt",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "@types/chrome": "^0.0.280",
+    "vitest": "^4.1.10",
+    "wxt": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  }
+}

@@ -33,3 +33,7 @@ dist/
 ext-build/
 node_modules/
 pnpm-lock.yaml
+
+# WXT
+.output/
+.wxt/
