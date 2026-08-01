@@ -122,10 +122,10 @@ The estate coexists on one host, so ports are assigned deliberately: `captur` 87
 `captur-linkedin` 8788, `insta` 8789, `capture-fiver` 8790, `FPIOS` 8810. FPIOS's README
 calls its number deliberate for exactly this reason.
 
-**`config.toml` currently says `9999`, which was picked arbitrarily and violates the
-convention.** A grep of the estate shows 8784, 8787–8792, 8799, 8810, 8811, 8873 in use (some
-hits may be coincidental substrings — verify before claiming a slot). **Allocate a real port
-from the band and update `config.toml` when the orchestrator is first written.**
+**`whatsapp-reply` owns `8812`.** Allocated 2026-08-01 after checking the band: 8787/8799
+(captur), 8788 (linkedin), 8789 (insta), 8790 (fiver), 8810 (FPIOS), 8811 (freelance-index,
+documented in its capture spec). Nothing was listening on 8812. The earlier `9999` was
+arbitrary and has been replaced everywhere.
 
 ## Sources & siblings (read; do NOT disturb)
 

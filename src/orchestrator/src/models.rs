@@ -2,69 +2,59 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Where an action sits in the capture → draft → approve → send lifecycle.
+///
+/// Variants are added as tests demand them; see `docs/ARCHITECTURE.md` for the
+/// full state machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ActionStatus {
-    #[serde(rename = "pending")]
-    Pending,
-    #[serde(rename = "executing")]
-    Executing,
-    #[serde(rename = "done")]
-    Done,
-    #[serde(rename = "failed")]
-    Failed,
+    #[serde(rename = "captured")]
+    Captured,
+}
+
+impl ActionStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ActionStatus::Captured => "captured",
+        }
+    }
 }
 
 impl std::fmt::Display for ActionStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ActionStatus::Pending => write!(f, "pending"),
-            ActionStatus::Executing => write!(f, "executing"),
-            ActionStatus::Done => write!(f, "done"),
-            ActionStatus::Failed => write!(f, "failed"),
-        }
+        f.write_str(self.as_str())
     }
 }
 
+/// An inbound message as the extension observed it.
+///
+/// `arrived_at` is the message's real arrival time and is threaded through the
+/// pipeline unchanged — nothing re-stamps it at projection time. The rate
+/// governor's `min_age_seconds` is meaningless otherwise.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Capture {
+    pub platform: String,
+    pub chat_id: String,
+    pub sender: String,
+    pub text: String,
+    pub arrived_at: DateTime<Utc>,
+}
+
+/// A queued action — one inbound message and everything that happens to it.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Action {
     pub id: String,
-    pub action: String,                    // "send_whatsapp", "send_linkedin", etc.
-    pub params: serde_json::Value,         // { to, message, ... }
+    pub chat_id: String,
+    pub sender: String,
+    pub inbound_text: String,
     pub status: ActionStatus,
-    pub created_at: DateTime<Utc>,
-    pub completed_at: Option<DateTime<Utc>>,
+    pub arrived_at: DateTime<Utc>,
 }
 
-impl Action {
-    pub fn new(action: String, params: serde_json::Value) -> Self {
-        Self {
-            id: Uuid::new_v4().to_string(),
-            action,
-            params,
-            status: ActionStatus::Pending,
-            created_at: Utc::now(),
-            completed_at: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Snapshot {
-    pub id: String,
-    pub action_id: String,
-    pub dom_json: serde_json::Value,  // { refs: [{ref, role, label}] }
-    pub created_at: DateTime<Utc>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Result {
-    pub id: String,
-    pub action_id: String,
-    pub success: bool,
-    pub error_msg: Option<String>,
-    pub claude_response: Option<serde_json::Value>,
-    pub commands: Option<Vec<String>>,
-    pub created_at: DateTime<Utc>,
+/// Result of offering a capture to the queue.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnqueueOutcome {
+    Inserted(String),
+    Duplicate,
 }

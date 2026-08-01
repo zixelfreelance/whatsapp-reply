@@ -234,9 +234,9 @@ field and produced a table of exactly what a capture yields. That's the standard
 ## 10. Port and repo conventions the estate already follows
 
 - **Ports are allocated, not chosen:** captur `8799`/`8787`, linkedin `8788`, insta `8789`,
-  fiver `8790`, FPIOS `8810`. FPIOS's README says the number is *deliberate* so siblings
-  coexist on one host. **Our `9999` was picked arbitrarily** — move into the `88xx`/`881x`
-  band and record it.
+  fiver `8790`, FPIOS `8810`, freelance-index `8811`. FPIOS's README says the number is
+  *deliberate* so siblings coexist on one host. Our `9999` was picked arbitrarily.
+  **Resolved 2026-08-01: `whatsapp-reply` owns `8812`.**
 - **Every mature sibling has a repo-level `CLAUDE.md`** with Mission / Status / Locked
   decisions / Guardrails, explicitly written to make the repo self-orienting *without*
   org-level access. **We don't have one.** After this session's decisions, we have the
@@ -305,7 +305,7 @@ Two questions this project has never been asked:
 | 3 | Save fixtures + `spike/findings.md` with an explicit gate recommendation | `spike/` |
 | 4 | `content_hash UNIQUE` in the schema | `ARCHITECTURE.md` |
 | 5 | Thread capture time end-to-end; never `Date.now()` mid-pipeline | `ARCHITECTURE.md` |
-| 6 | Own DB, own port (move off 9999), assert `platform == "whatsapp"` on ingest | config + `queue.rs` |
+| 6 | ✅ Own DB, own port (`8812`), `platform` asserted on ingest | `queue.rs` |
 | 7 | Answer `PRIOR_ART.md`'s shared-schema question: **no** | `PRIOR_ART.md` |
 | 8 | Split verification into automated vs manual, with runnable manual steps | `ROADMAP.md` |
 | 9 | Write a repo-level `CLAUDE.md` | root |

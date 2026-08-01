@@ -65,15 +65,15 @@ this on day zero than day nine.
 
 **Tasks:**
 - [ ] Set up Rust workspace: `Cargo.toml` + `src/orchestrator/`
-- [ ] Create `src/orchestrator/src/main.rs` — HTTP server on :9999
+- [ ] Create `src/orchestrator/src/main.rs` — HTTP server on :8812
 - [ ] Create `src/orchestrator/src/server.rs` — Axum routes (POST /action/execute, GET /audit)
 - [ ] Create `src/orchestrator/src/models.rs` — Action, Snapshot, Result types
 - [ ] Test: `cargo run --release` starts server, responds to health check
 
 **Deliverables:**
 - Orchestrator compiles and runs
-- Server listens on http://127.0.0.1:9999
-- Can curl: `curl http://127.0.0.1:9999/health`
+- Server listens on http://127.0.0.1:8812
+- Can curl: `curl http://127.0.0.1:8812/health`
 
 **Duration:** 2 days  
 **Blocker:** None
@@ -127,7 +127,7 @@ this on day zero than day nine.
 - Data populates
 
 **Duration:** 1 day  
-**Blocker:** CORS headers (if extension can't reach :9999)
+**Blocker:** CORS headers (if extension can't reach :8812)
 
 ### Day 5: Logging + Monitoring
 

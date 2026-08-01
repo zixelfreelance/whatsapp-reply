@@ -29,7 +29,8 @@ and how we reuse/adapt it.
 - License tier gating (Free blocks packs, Pro/Enterprise enables them)
 
 **Backend (Rust)**
-- HTTP server on localhost:9999
+- HTTP server on localhost:9999 (verified in its source — and this is where our own
+  arbitrary `9999` came from, by copying. We now own `8812`.)
 - SQLite persistence to `~/lake/raw/YYYY-MM-DD/`
 - Structured tracing (IngestStart, CaptureReceived, CapturePersisted, etc.)
 - Pack registry (YouTube yt-dlp extraction works)

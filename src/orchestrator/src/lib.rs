@@ -7,7 +7,8 @@ pub mod executor;
 pub mod claude;
 pub mod trace;
 
-pub use models::{Action, ActionStatus, Snapshot};
+pub use models::{Action, ActionStatus, Capture, EnqueueOutcome};
+pub use queue::Queue;
 
 /// Placeholder server struct (to be implemented in Week 1)
 pub struct Server {

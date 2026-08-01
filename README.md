@@ -133,7 +133,7 @@ Create `config.toml`:
 
 ```toml
 [orchestrator]
-port = 9999
+port = 8812
 db = "data/whatsapp-reply.db"
 log_level = "info"
 
@@ -183,7 +183,7 @@ Called by the extension when messages arrive. Captures are **not** send instruct
 they enter the queue and a draft is proposed. Nothing sends without approval.
 
 ```bash
-curl -X POST http://127.0.0.1:9999/capture \
+curl -X POST http://127.0.0.1:8812/capture \
   -H "Content-Type: application/json" \
   -d '{
     "messages": [
@@ -208,7 +208,7 @@ Response:
 Query the audit trail — captures, drafts, approvals, sends, failures.
 
 ```bash
-curl "http://127.0.0.1:9999/audit?date=2026-08-01"
+curl "http://127.0.0.1:8812/audit?date=2026-08-01"
 ```
 
 ### GET /health
@@ -274,7 +274,7 @@ See [ROADMAP.md](docs/ROADMAP.md#week-3-hardening--production-readiness).
 **Extension not capturing?**
 - Check `chrome://extensions` → extension enabled
 - Check console for errors (F12)
-- Verify orchestrator running: `curl http://127.0.0.1:9999/health`
+- Verify orchestrator running: `curl http://127.0.0.1:8812/health`
 
 **No draft arriving in Telegram?**
 - Is the chat in `[allowlist]`? It defaults to **empty** — this is the most likely cause
