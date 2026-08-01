@@ -68,6 +68,8 @@ targeting guarantee, and a misfired group reply is far more costly than a misfir
 ```sql
 CREATE TABLE actions (
     id TEXT PRIMARY KEY,
+    platform TEXT NOT NULL CHECK (platform = 'whatsapp'),  -- see note below
+    content_hash TEXT NOT NULL UNIQUE,  -- sha256(chat_id|sender|text|timestamp)
     chat_id TEXT NOT NULL,           -- expected target; asserted before send
     contact TEXT NOT NULL,           -- display name / number, for the Telegram card
     inbound_text TEXT NOT NULL,      -- what they sent
@@ -105,6 +107,25 @@ captured → drafted → awaiting_approval ─┬→ approved → executing ─�
 > offline replay. That's redundant with the structured log and expensive per action.
 > Instead the executor logs the tree **on failure only** — same diagnostic value, none
 > of the storage cost. Decision made 2026-08-01.
+
+> **`content_hash UNIQUE` is not optional.** WhatsApp Web re-renders its message list
+> constantly (read receipts, presence, reactions, virtualised scroll), so a naive
+> `MutationObserver` re-emits the same message many times. Without dedup a duplicate
+> capture becomes a duplicate draft, a duplicate Telegram card, and — if approved twice —
+> the *same reply sent twice*, which is both embarrassing and bot-shaped. Every capture
+> sibling in the estate hashes for this reason.
+
+> **`platform` is asserted, not coerced.** On 2026-07-12 a LinkedIn sensor in this estate
+> wrote private DMs into another repo's lake. Every sensor forks the same spine, which is
+> how it happened. This project handles the most sensitive data of any sibling, so a
+> capture that isn't `whatsapp` is rejected outright. Own DB, own port, own lake, never
+> unified. See [ESTATE_LESSONS.md](ESTATE_LESSONS.md).
+
+> **Time is threaded, never stamped mid-pipeline.** The message's real arrival time flows
+> from capture through drafting into the record; nothing calls `Date.now()` during
+> projection. `capture-reddit` hit the inverse bug — projection-time timestamps broke
+> replay determinism and silently duplicated rows. For us it's also load-bearing for
+> safety: `min_age_seconds` is meaningless if arrival time is re-stamped.
 
 **Rate Governor**
 
@@ -512,8 +533,14 @@ why the assert in step 12 aborts rather than attempting to recover.
 
 ## Performance Targets
 
+**The metric that actually decides success:** *do you approve drafts every day?* The estate's
+guardrail is "don't build a data graveyard — a foundation with no daily-used lens is failure,
+not progress." If Telegram cards go unanswered for a week, this project has failed regardless
+of latency or success rate. Track approvals/day alongside the table below.
+
 | Metric | Target | Current |
 |--------|--------|---------|
+| Approvals per day (the real one) | > 0, sustained | TBD |
 | Message latency (capture → reply) | < 30s | TBD |
 | Success rate | > 95% | TBD |
 | CPU (idle) | < 5% | TBD |

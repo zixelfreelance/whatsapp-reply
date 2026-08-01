@@ -16,7 +16,17 @@
 **Do this before writing another line of orchestrator code.** Two load-bearing assumptions
 are unverified, and either one can invalidate the architecture.
 
+> **Read [ESTATE_LESSONS.md](ESTATE_LESSONS.md) first.** Seven sibling repos have already
+> run this play. `capture-reddit` lost an entire adapter design to an unprobed assumption;
+> `capture-fiver` built the exact smoke-test shape this spike needs.
+
 **Tasks:**
+- [ ] **Is unopened-chat message text in the DOM at all?** Open WhatsApp Web, have someone
+      message a chat you do *not* have open, and check whether the full text is reachable
+      from the DOM or only a truncated sidebar preview. **This invalidates more than the
+      agent-browser questions and costs less to answer — do it first.** If the text isn't
+      there, the agent must *open* chats to read them, which marks them read and turns
+      passive capture into an active behaviour.
 - [ ] Install: `pnpm add -g agent-browser && agent-browser install`
 - [ ] Verify `--auto-connect` attaches to your **already-running, logged-in** Chrome without
       `--remote-debugging-port`. (The docs group it with CDP sessions, which normally need
@@ -25,8 +35,18 @@ are unverified, and either one can invalidate the architecture.
 - [ ] Verify agent-browser can `fill` and send in WhatsApp Web at all. The composer is a
       React/Lexical `contenteditable` behind a strict CSP.
 - [ ] Send exactly one real message to yourself, end to end, by hand.
+- [ ] Write a `contenteditable` fill smoke test, modelled on
+      `capture-fiver/docs/live-smoke-react-fill.md`. Keep its verdict logic — act, wait
+      400ms, assert the value *stuck* — but swap the mechanism: the composer is a
+      Lexical-family `contenteditable`, so `HTMLInputElement.prototype`'s value setter does
+      not apply. Try `execCommand('insertText')`, then synthetic `beforeinput`/`input`, then
+      a synthetic paste.
+- [ ] Assert on **extracted field values** (chat_id, sender, full text), not on "the
+      observer fired." An endpoint being captured is not the data being present.
 
-**Deliverable:** a written yes/no on both questions.
+**Deliverable:** `spike/findings.md` — a written yes/no per question, saved DOM fixtures as
+evidence, and an explicit recommendation with a named gate. Fixtures become the test
+fixtures later, exactly as `capture-reddit/probe/fixtures/` did.
 
 **If either fails:** the "extension reads, agent-browser writes" split collapses and the
 extension must send instead — which forfeits the `isTrusted` advantage. Better to learn

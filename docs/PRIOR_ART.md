@@ -323,10 +323,13 @@ whatsapp-reply v0.2 = v0.1 + jcode (multi-model, complex workflows)
 
 ## Open Questions
 
-1. **Should we share SQLite schema between passive-capture and whatsapp-reply?**
-   - Pro: Can analyze captures + actions together
-   - Con: Couples projects, makes passive-capture heavier
-   - Current: Separate DBs for now. Can unify later if needed.
+1. ~~**Should we share SQLite schema between passive-capture and whatsapp-reply?**~~
+   **ANSWERED: No. Never.** On 2026-07-12 a LinkedIn sensor in this estate wrote private
+   DMs into `pastely-app`'s Upwork-only lake — see `pastely-app/CLAUDE.md` ADR 0009. Every
+   sensor is a fork of the same brain, which is exactly how that happened. This project
+   handles private personal conversations, the most sensitive data of any sibling. Own
+   database, own port, own lake, and a hard `platform == "whatsapp"` assert on ingest.
+   See [ESTATE_LESSONS.md](ESTATE_LESSONS.md#4-the-cross-contamination-incident--read-this-one-twice).
 
 2. **Should orchestrator integrate with jcode's tool framework?**
    - Pro: Access to 30+ tools (search, analyze, post)
