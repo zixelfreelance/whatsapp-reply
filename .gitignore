@@ -1,8 +1,10 @@
 # Rust
 /target/
-Cargo.lock
 **/*.rs.bk
 *.pdb
+# NOTE: Cargo.lock is intentionally NOT ignored. This workspace produces a
+# binary, and Rust convention is to commit the lockfile for applications so
+# builds are reproducible. Only libraries omit it.
 
 # IDE
 .vscode/

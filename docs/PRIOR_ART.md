@@ -1,6 +1,13 @@
 # Prior Art Analysis
 
-This project is built on three existing systems. This document analyzes what each provides and how we reuse/adapt it.
+This project borrows from three existing systems. This document analyzes what each provides
+and how we reuse/adapt it.
+
+> **Verified 2026-08-01.** An earlier version of this document oversold the reuse story.
+> Claims below have been checked against the actual repos on disk; corrections are marked
+> inline. Read the corrections before planning around any of this — the headline finding is
+> that the WhatsApp support in `passive-capture` is two lines of hostname matching with no
+> message extraction whatsoever.
 
 ---
 
@@ -37,10 +44,33 @@ This project is built on three existing systems. This document analyzes what eac
 ### How We Reuse It
 
 #### Direct Copy
-- **Extension structure:** Use passive-capture's manifest.json + service worker pattern
-- **WhatsApp detector:** Already detects WhatsApp Web, just reuse the platform detection
-- **Sidepanel UI:** Can fork and adapt for showing queued actions + results
-- **Service worker batching:** Use same logic (batch every 2s or 5+ messages)
+- **Extension structure:** manifest.json + service worker pattern
+- **Service worker batching:** same logic and same tuned values (2s or 5+ items)
+- **`trace.rs`:** structured logging, near-verbatim
+- **`localStorage` fallback:** the MV3 service-worker-death workaround
+
+#### ⚠️ Correction: the "WhatsApp detector" is not what this document implied
+
+The entirety of WhatsApp support in `passive-capture` is two lines in
+`src/extension/sw/ingest.ts`:
+
+```ts
+} else if (host.includes('whatsapp.com') || host.includes('web.whatsapp.com')) {
+  return 'whatsapp';
+}
+```
+
+That returns a platform *label* from a hostname. There is **no message extraction, no chat
+identification, no sender parsing** — none of what this project actually needs. Reading
+messages out of WhatsApp Web's obfuscated React DOM is greenfield work, and it is the
+single largest unestimated task in the plan.
+
+#### ⚠️ Correction: the extension toolchain differs from our docs
+
+`passive-capture` is **Bun + WXT + vitest**, and its sidepanel is a plain `.ts` file — not
+npm + React `.tsx` as this project's README originally specified. Its `package.json` build
+script is a placeholder (`echo 'no frontend bundle step yet'`). Forking it means inheriting
+WXT and Bun; writing fresh means not reusing its build at all. **Decide before Week 1 Day 4.**
 
 #### Adapt
 - **Backend endpoints:** passive-capture has `/ingest` (receive captures). We add `/action/execute` (send actions) and `/audit` (query trail)
@@ -147,9 +177,17 @@ cp -r passive-capture/src/ whatsapp-reply/src/orchestrator/
 
 ## 3. jcode
 
-**Location:** `./jcode` (in this repo)  
-**Status:** Production  
-**Stack:** Rust, 30+ crates, multi-model LLM support
+**Location:** `~/jcode` (a separate repo — **not** in this one, as an earlier draft claimed)
+**Status:** Production
+**Stack:** Rust, 100+ crates
+**What it actually is:** a **coding agent harness** — "the next generation coding agent
+harness to raise the skill ceiling," by `1jehuang`. It is a peer to Claude Code, not a
+generic multi-model LLM proxy.
+
+> ⚠️ **This reframes the integration story below.** Routing WhatsApp reply generation
+> through jcode would mean bending a coding-agent harness into a chat-reply service. The
+> "Phase 2 integration" notes that follow were written against the wrong mental model and
+> should be treated as speculative, not planned.
 
 ### What It Provides
 
@@ -317,7 +355,9 @@ whatsapp-reply v0.2 = v0.1 + jcode (multi-model, complex workflows)
 
 ## References
 
-- **passive-capture:** `/Users/bm/zix-freelancer-capture/org/passive-capture/`
-- **zix-agent:** `/Users/bm/zix-agent/`
-- **jcode:** `./jcode/`
-- **agent-browser:** https://github.com/vercel-labs/agent-browser
+- **passive-capture:** `/Users/bm/zix-freelancer-capture/org/passive-capture/` ✓ verified
+- **zix-agent:** `/Users/bm/zix-agent/` ✓ verified (Tauri v2 shell at `src-tauri/`)
+- **jcode:** `/Users/bm/jcode/` ✓ verified (not `./jcode`)
+- **agent-browser:** https://github.com/vercel-labs/agent-browser — Rust (2.8 MB Rust vs
+  340 KB TS), 39.6k stars, created 2026-01-11, `v0.33.1` at time of writing. Distributed
+  via npm as a shim around prebuilt binaries. **Not installed on this machine yet.**

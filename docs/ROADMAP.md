@@ -11,6 +11,32 @@
 
 ---
 
+## Day 0: Spike the Execution Layer (BLOCKING)
+
+**Do this before writing another line of orchestrator code.** Two load-bearing assumptions
+are unverified, and either one can invalidate the architecture.
+
+**Tasks:**
+- [ ] Install: `pnpm add -g agent-browser && agent-browser install`
+- [ ] Verify `--auto-connect` attaches to your **already-running, logged-in** Chrome without
+      `--remote-debugging-port`. (The docs group it with CDP sessions, which normally need
+      the port. If it *does* need the port, note that it exposes full browser control to any
+      local process — a real security cost that must be weighed, not absorbed silently.)
+- [ ] Verify agent-browser can `fill` and send in WhatsApp Web at all. The composer is a
+      React/Lexical `contenteditable` behind a strict CSP.
+- [ ] Send exactly one real message to yourself, end to end, by hand.
+
+**Deliverable:** a written yes/no on both questions.
+
+**If either fails:** the "extension reads, agent-browser writes" split collapses and the
+extension must send instead — which forfeits the `isTrusted` advantage. Better to learn
+this on day zero than day nine.
+
+**Duration:** half a day
+**Blocker:** none — nothing else should start until this is answered
+
+---
+
 ## Week 1: Foundation (Capture + Orchestrator)
 
 **Goal:** Build the capture layer (extension) and orchestrator HTTP API.
@@ -127,7 +153,7 @@
 
 **Deliverables:**
 - `claude.rs` compiles
-- Can send snapshot to Claude: `POST https://api.anthropic.com/messages`
+- Can send snapshot to Claude: `POST https://api.anthropic.com/v1/messages`
 - Get back: `["fill @e1 'text'", "click @e2"]`
 - Tests pass
 
@@ -247,11 +273,16 @@
 ### Day 2-3: Performance Tuning
 
 **Tasks:**
-- [ ] Analyze latency bottleneck: is it Claude (network latency) or agent-browser (screenshot)?
-- [ ] Optimize: cache snapshots if DOM unchanged
-- [ ] Optimize: parallel snapshots (2-3 concurrent actions)
-- [ ] Optimize: batch Claude API calls if possible
+- [ ] Analyze latency bottleneck: is it Claude (network latency) or agent-browser (snapshot)?
+- [ ] Optimize: trim the accessibility tree before it reaches Claude (biggest token cost)
+- [ ] Optimize: prompt-cache the system prompt + preamble; measure the hit rate
 - [ ] Measure: did optimization help?
+
+> **Do NOT parallelize browser actions.** An earlier draft proposed "parallel snapshots
+> (2-3 concurrent actions)." Two agents driving the same WhatsApp Web UI will interleave
+> keystrokes into the same composer. v0.1 executes strictly one action at a time. Latency
+> is also not worth optimizing hard here — the rate governor deliberately introduces far
+> more delay than the pipeline does.
 
 **Deliverables:**
 - Latency improved (or documented as network-limited)
@@ -264,19 +295,21 @@
 ### Day 3-4: Documentation + Deployment Checklist
 
 **Tasks:**
-- [ ] Write README.md (quick start, troubleshooting)
-- [ ] Write ARCHITECTURE.md (system design, decisions)
+- [ ] **Verify and refresh** README.md and ARCHITECTURE.md against what was actually built
+      (both were written up front — this slot is for reconciling them with reality, not
+      authoring them)
+- [ ] Write API.md — generated from the actual handlers, not from memory
 - [ ] Write DEPLOYMENT.md (production checklist, monitoring)
 - [ ] Create templates:
   - [ ] config.toml.example
   - [ ] .env.example
-  - [ ] systemd service file (for Linux deployment)
+  - [ ] launchd plist (macOS auto-start; systemd if Linux ever matters)
 - [ ] Document known limitations
 - [ ] Document next steps (Week 4+)
 
 **Deliverables:**
-- README is complete and tested (can someone else follow it?)
-- Architecture document explains all decisions
+- Clean-clone walkthrough: a stranger can follow the README to a working reply
+- Architecture document matches the shipped system, decision record current
 - Deployment guide: step-by-step to production
 
 **Duration:** 1.5 days  
@@ -409,10 +442,15 @@
 
 | Item | Unit Cost | Monthly (1000 msgs) | Notes |
 |------|-----------|-------------------|-------|
-| Claude API | $0.003/action | ~$3 | 1000 messages × $0.003 |
+| Claude API | **TBD — measure in Week 2 Day 5** | TBD | See note below |
 | Infrastructure | $0 | $0 | Runs locally |
 | Storage (SQLite) | $0 | $0 | ~10MB/month |
-| **Total** | — | **~$3** | Negligible |
+
+> **The old "$0.003/action → ~$3/month" figure was not derived, it was assumed**, and it
+> assumed roughly one API call per reply. The real loop is a drafting call **plus** an
+> accessibility-tree snapshot at execution time, and trees are not small. Expect several
+> times that until prompt caching is implemented and measured. Fill this table with
+> measured numbers in Week 2 Day 5 rather than carrying the guess forward.
 
 ---
 
@@ -441,7 +479,7 @@
 
 - **Architecture:** [ARCHITECTURE.md](ARCHITECTURE.md)
 - **Prior Art:** [PRIOR_ART.md](PRIOR_ART.md)
-- **API Reference:** [API.md](API.md)
-- **Deployment:** [DEPLOYMENT.md](DEPLOYMENT.md)
+- **API Reference:** `API.md` — planned, Week 3 Day 3-4 (not yet written)
+- **Deployment:** `DEPLOYMENT.md` — planned, Week 3 Day 3-4 (not yet written)
 
 **Ship it.** 🚀

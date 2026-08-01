@@ -2,12 +2,17 @@
 
 ## System Overview
 
-**Goal:** Claude-powered WhatsApp auto-reply system that captures messages, reasons about them with Claude AI, and sends replies via browser automation.
+**Goal:** Claude-powered WhatsApp reply assistant that captures messages, drafts replies with Claude, gets human approval, and sends via browser automation.
 
 **Design Philosophy:**
-- **Safety first** — all data stays local, no third-party APIs except Claude
+- **Human in the loop, always** — nothing sends without a person approving it
+- **Account safety is the critical path** — behavioural pacing over technical cleverness
+- **Data stays local by default** — two accepted external services: Anthropic and Telegram
 - **Cost-effective** — zero platform fees (no WhatsApp Business API), only Claude API usage
-- **Builder-grade** — modular, extensible, production-ready
+- **WhatsApp done properly, seams for the rest** — not a generic engine up front
+
+**Scope:** 1:1 chats only. Groups are out of v0.1 (no deep link, non-unique names, weaker
+targeting guarantee, and a misfired group reply is far more costly than a misfired DM).
 
 ---
 
@@ -18,22 +23,26 @@
 **Technology:** TypeScript, Chrome MV3 manifest
 
 **What it does:**
-- Detects messages on WhatsApp Web
-- Extracts: sender, message text, timestamp
-- Batches messages (every 2s or 5+ messages)
-- Sends to orchestrator via HTTP
+- Detects messages on WhatsApp Web (`MutationObserver`, event-driven — never polls)
+- Extracts: chat_id, sender, message text, timestamp
+- Batches messages (every 2s or 5+ messages — values inherited from `passive-capture`)
+- POSTs to orchestrator
+- Draws the activity border while the agent is acting
+
+**This layer is read-only. It never sends.**
 
 **Key components:**
 - `manifest.json` — MV3 permissions + sidepanel
-- `background.ts` — Service worker, batch logic
-- `content.ts` — DOM capture, message detection
-- `whatsapp.ts` — Platform-specific detector
-- `sidepanel.tsx` — Real-time capture viewer UI
+- `background.ts` — Service worker, batch logic, `localStorage` fallback
+- `content.ts` — DOM capture, message detection, activity border
+- `whatsapp.ts` — Platform-specific extractor (built here; prior art has hostname
+  detection only, no message extraction)
+- `sidepanel` — Local capture/status viewer
 
 **Why this layer:**
-- Extension runs in user's browser with their login state
-- No need for separate authentication (WhatsApp session is already in Chrome)
-- Can see the rendered page (not just DOM API)
+- Runs in your browser with your login state — no separate authentication
+- Runs in an **isolated world**: the page cannot see it, so capture is undetectable
+- Sees the rendered page, not just the network layer
 
 ---
 
@@ -59,20 +68,17 @@
 ```sql
 CREATE TABLE actions (
     id TEXT PRIMARY KEY,
-    action TEXT NOT NULL,           -- "send_whatsapp"
-    params JSON NOT NULL,            -- { to, message }
-    status TEXT NOT NULL,            -- "pending", "executing", "done", "failed"
+    chat_id TEXT NOT NULL,           -- expected target; asserted before send
+    contact TEXT NOT NULL,           -- display name / number, for the Telegram card
+    inbound_text TEXT NOT NULL,      -- what they sent
+    draft_text TEXT,                 -- what Claude proposed
+    approved_text TEXT,              -- what the human actually approved (may be edited)
+    status TEXT NOT NULL,            -- see state machine below
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    drafted_at TIMESTAMP,
+    approved_at TIMESTAMP,
     completed_at TIMESTAMP,
-    result JSON
-);
-
-CREATE TABLE snapshots (
-    id TEXT PRIMARY KEY,
-    action_id TEXT NOT NULL,
-    dom_json JSON NOT NULL,          -- { refs: [{ref, role, label}] }
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (action_id) REFERENCES actions(id)
+    error_msg TEXT
 );
 
 CREATE TABLE results (
@@ -80,12 +86,42 @@ CREATE TABLE results (
     action_id TEXT NOT NULL,
     success BOOLEAN NOT NULL,
     error_msg TEXT,
-    claude_response JSON,            -- Claude's decision
-    commands JSON,                   -- ["click @e2", "fill @e3 'text'"]
+    commands JSON,                   -- ["fill @e1 '...'", "press Enter"]
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (action_id) REFERENCES actions(id)
 );
 ```
+
+**Status state machine:**
+
+```
+captured → drafted → awaiting_approval ─┬→ approved → executing ─┬→ done
+                                        │                        └→ failed
+                                        ├→ skipped   (human said no)
+                                        └→ expired   (no answer in N hours)
+```
+
+> **No `snapshots` table.** An earlier draft persisted every accessibility tree for
+> offline replay. That's redundant with the structured log and expensive per action.
+> Instead the executor logs the tree **on failure only** — same diagnostic value, none
+> of the storage cost. Decision made 2026-08-01.
+
+**Rate Governor**
+
+Sits between `awaiting_approval → approved` and `executing`. Nothing reaches the browser
+without passing it:
+
+| Control | Purpose |
+|---------|---------|
+| `max_per_hour` | Hard ceiling on sends |
+| `min_gap_seconds` | Spacing between two consecutive sends |
+| `jitter_seconds` | Random 0..N added to every delay, so timing isn't metronomic |
+| `min_age_seconds` | Floor on how soon after arrival a reply may go out |
+
+`min_age_seconds` is the one people skip and shouldn't. Instant replies are the clearest
+bot signal there is — nobody answers in 900ms at 4am. The governor also means a backlog
+(laptop asleep overnight, 40 messages queued) drains over hours rather than firing as a
+burst, which is the single most machine-shaped pattern the system could emit.
 
 **Why Rust:**
 - Same stack as jcode (reusable patterns)
@@ -109,77 +145,99 @@ CREATE TABLE results (
 
 **Why agent-browser:**
 - Built for AI agents (accessibility tree, semantic refs, not CSS selectors)
-- Rust-native CLI (no Node.js overhead)
-- Works with any browser (Chrome, Brave, Chromium)
+- Rust-native binary (npm is only the distribution channel)
 - Resilient to UI changes (accessibility tree is more stable than CSS)
+- **Generates trusted input events** — see Decision 5 below
+- Supports the pair-browsing model directly: it streams the viewport for a human to watch
+  alongside the agent, and its idle-shutdown explicitly never closes a browser in direct
+  human use
+
+**Unverified as of 2026-08-01 — resolve before writing executor code:**
+1. Does `--auto-connect` attach to an already-running, logged-in Chrome **without**
+   `--remote-debugging-port`? The docs group it with CDP sessions, which normally need one.
+2. Can it fill and send in WhatsApp Web at all? The composer is a React/Lexical
+   `contenteditable` behind a strict CSP.
+
+Both are load-bearing. If either fails, the read/write split collapses and the extension
+must send instead.
 
 ---
 
 ## Data Flow
 
-### Happy Path: Message → Reply
+### Happy Path: Message → Draft → Approval → Reply
 
 ```
-1. User sends message in WhatsApp Web
-   ↓
-2. Extension content script sees DOM change
-   ↓
-3. Extension extracts: from="+1234", message="Hi"
-   ↓
-4. Extension batches and sends: POST /action/execute
-   {
-     "action": "send_whatsapp",
-     "to": "+1234",
-     "message": "Hi"
-   }
-   ↓
-5. Orchestrator stores in SQLite: actions.status = "pending"
-   ↓
-6. Executor worker reads pending action
-   ↓
-7. Executor runs: agent-browser snapshot
-   → Gets: { refs: [{ ref: "@e1", role: "textbox", label: "Message input" }] }
-   ↓
-8. Executor sends to Claude:
-   "User sent a message. I need to reply with 'Thanks for reaching out!'"
-   + accessibility tree
-   ↓
-9. Claude responds:
-   [
-     { action: "fill", ref: "@e1", text: "Thanks for reaching out!" },
-     { action: "click", ref: "@e2" }
-   ]
-   ↓
-10. Executor runs each command:
-    agent-browser fill @e1 "Thanks for reaching out!"
-    agent-browser click @e2
+1.  Someone messages you in WhatsApp Web
     ↓
-11. Message sent in WhatsApp Web ✅
+2.  Extension content script sees the DOM change (MutationObserver)
     ↓
-12. Orchestrator updates SQLite:
-    actions.status = "done"
-    results.success = true
+3.  Extension extracts: chat_id, from, text, timestamp — batches (2s or 5+)
+    ↓
+4.  POST /capture
+    ↓
+5.  ALLOWLIST GATE — chat not opted in? recorded, never drafted. Stop.
+    ↓
+6.  Orchestrator stores: status = "captured"
+    ↓
+7.  Claude drafts a reply (ONE API call, text only — no page involved yet)
+    status = "drafted"
+    ↓
+8.  Telegram card: contact, their message, the proposed reply
+    [✓ Send]  [✎ Edit]  [✗ Skip]
+    status = "awaiting_approval"
+    ↓
+9.  You tap ✓ (or edit then send). status = "approved"
+    ↓
+10. RATE GOVERNOR — hold until max_per_hour, min_gap, min_age all satisfied
+    ↓
+11. agent-browser navigates to the target chat (deep link)
+    ↓
+12. ASSERT — read the conversation header, compare to actions.chat_id
+    Mismatch → abort, report to Telegram, DO NOT improvise
+    ↓
+13. agent-browser snapshot → Claude picks refs → fill + send (atomic)
+    ↓
+14. Reply sent ✅   status = "done"
 ```
 
-### Retry Path: If agent-browser Fails
+Two gates and one governor stand between a captured message and a sent reply. All three
+default closed.
+
+### Failure Path: Escalate, Don't Improvise
 
 ```
-Agent-browser click fails (modal overlay detected)
+Any step fails (composer not found, modal covering it, chat assert mismatch)
   ↓
-Executor catches error
+Retry the mechanical action twice — same target, no new reasoning
   ↓
-Wait 2 seconds
+Still failing?
   ↓
-Take new snapshot
+Log the accessibility tree (failure only — this is what replaces the snapshots table)
   ↓
-Send to Claude: "Last click failed due to modal. Try again?"
+status = "failed", and send a failure report to Telegram:
+  "Couldn't send to Ali — composer not found. Open WhatsApp?"
   ↓
-Claude responds with new command
-  ↓
-Retry (max 3 retries per action)
-  ↓
-If still failing: log error, mark action "failed"
+STOP. Never reason a way around an obstacle unsupervised.
 ```
+
+This mirrors the take-control principle below: when the agent is confused, hand it to the
+human. An agent improvising past a modal it doesn't understand is exactly how an approved
+reply ends up somewhere nobody approved.
+
+### Human Priority
+
+The agent runs 24/7 in your own browser window and is visible while acting — the extension
+draws a border on the page. Control follows the pattern established by Claude in Chrome,
+Comet, and Atlas/Operator rather than being re-derived:
+
+- **Explicit take-control**, not keystroke detection. You click to take the wheel; implicit
+  interrupt-on-typing creates races mid-action.
+- **Yield at action boundaries.** `fill` + send is atomic — sub-second, never interrupted
+  partway, so there is never approved text orphaned in a composer.
+- **Explicit resume.** Once you have control the agent waits; it does not auto-resume on idle.
+- **Irreversible actions always stop for confirmation** — which in this system means *send*,
+  already covered by Telegram approval.
 
 ---
 
@@ -300,9 +358,62 @@ If still failing: log error, mark action "failed"
 
 **Why:**
 - Built for AI (accessibility tree, semantic refs)
-- Doesn't require Node.js (Rust CLI)
+- Doesn't require Node.js (Rust binary)
 - Easier for Claude to reason about (refs instead of CSS)
-- Vercel Labs maintains it (production-grade)
+- Vercel Labs maintains it
+
+**Risk to watch:** the repo is 7 months old with 117 releases shipped. Fast-moving young
+dependency on the critical path — pin the version.
+
+---
+
+### Decision 5: Extension Reads, agent-browser Writes
+
+**Why not just have the extension send?** It's already in the page and already parses the
+DOM to capture. The answer is the trust boundary on input events:
+
+| | Extension content script | agent-browser (CDP) |
+|---|---|---|
+| Visible to the page? | **No** — isolated world | Attachment is detectable |
+| Events it generates | `isTrusted: false` — page can check | `isTrusted: true` — indistinguishable from a human |
+
+So each layer is used where it's strongest: the extension **reads** invisibly, CDP
+**writes** with trusted events. This is not a compromise between two options; it's using
+both for what each is actually good at.
+
+---
+
+### Decision 6: Draft-and-Approve, Not Auto-Send
+
+**Chosen:** Claude drafts; a human approves every send.
+
+**Why:** it collapses nearly every ban vector at once. Volume becomes human-paced, timing
+is naturally jittered, and a bad reply never reaches anyone. It also produces free eval
+data — how often you edit before sending tells you precisely when (and whether) auto-send
+would be safe.
+
+**The objection it had to survive** was "you have to be at the machine." A Telegram
+approval surface removes it — you approve from your phone. Draft-and-approve therefore
+costs no autonomy, which is what made it the right call rather than a cautious one.
+
+---
+
+### Decision 7: Telegram as a Second Accepted Vendor
+
+**Chosen:** Telegram bot carrying **full text**, not IDs-and-previews.
+
+**Why:** approving something you can only half-read turns approval into rubber-stamping —
+the exact failure mode human-in-the-loop exists to prevent. A truncated preview would
+protect privacy by defeating the control it exists to serve.
+
+**Cost, stated plainly:** every captured message and every proposed reply transits
+Telegram's servers. That is a real weakening of the "stays local" property and it was
+accepted deliberately, not overlooked. See Security & Privacy below.
+
+**Alternatives considered:** sidepanel-only (strictly local, but desk-only), Tauri
+dashboard (most code, still desk-only). Both remain viable as *additional* surfaces later —
+the approval **protocol** in the orchestrator is the seam, and extra surfaces are thin
+clients over it.
 
 ---
 
@@ -320,13 +431,21 @@ If still failing: log error, mark action "failed"
    - If still failing: mark action "failed", alert user
 
 3. **agent-browser fails**
-   - Take new snapshot (UI may have changed)
-   - Send to Claude with "last action failed, retry?"
-   - Max 3 retries per action
-   - If still failing: log error, move to next action
+   - Retry the mechanical action twice — same target, no new reasoning
+   - If still failing: log the accessibility tree, mark `failed`, **report to Telegram**
+   - Never improvise around an obstacle unsupervised
 
-4. **SQLite disk full**
-   - Log error, stop accepting new actions
+4. **Chat assert mismatch** (navigation didn't land where expected)
+   - Abort immediately. Do not attempt to correct course.
+   - Report to Telegram; the human decides
+   - This is the one failure that must never be "handled" cleverly
+
+5. **Approval expires** (no answer within N hours)
+   - Mark `expired`, do not send
+   - A stale draft answers a conversation that has moved on
+
+6. **SQLite disk full**
+   - Log error, stop accepting new captures
    - Alert user: "Disk full, clean up ~/whatsapp-reply/data/"
 
 ### Extension Errors
@@ -344,24 +463,50 @@ If still failing: log error, mark action "failed"
 
 ## Security & Privacy
 
-### Data Stays Local
+### What Stays Local
 
 - WhatsApp session: your Chrome instance only
-- Messages: SQLite file on your machine only
+- Captures, drafts, approvals: SQLite file on your machine only
 - Logs: JSON files on your disk only
-- Claude API: message + claude response (can't be avoided, inherent to using Claude)
+- Secrets: environment variables only — never `config.toml`, never SQLite, never logs
 
-### No Third-Party Integrations
+### Two Accepted External Services
 
-- ✅ Local: extension, orchestrator, agent-browser, SQLite
-- ❌ Cloud: Claude API (necessary for reasoning)
-- ❌ Platform APIs: not used (browser automation instead)
+This project does **not** claim "no third parties." It claims two, named:
+
+| Service | Sees | Why it's accepted |
+|---------|------|-------------------|
+| **Anthropic** | Inbound message text + generated draft | Inherent to using Claude for reasoning |
+| **Telegram** | Inbound message text + proposed draft | Required for remote approval; a truncated preview would turn approval into rubber-stamping |
+
+Platform APIs (WhatsApp Business) are not used — browser automation instead.
+
+> This section previously read "no third-party integrations." That stopped being true when
+> Telegram became the approval surface. A pillar you quietly violate is worse than a
+> tradeoff you state. Amended 2026-08-01.
+
+### Account Safety
+
+Automating WhatsApp Web is against WhatsApp's terms; the realistic consequence is a ban of
+the **phone number**. The signals that trigger it are overwhelmingly behavioural — volume,
+reply speed, unsolicited first contact, and recipient reports — not input-mechanism
+fingerprints. The safety budget is therefore spent on behaviour:
+
+- Human approval on every send
+- Allowlist, empty by default — opt in explicitly, never opt out
+- Rate governor (cap, gap, jitter, minimum age)
+- Never initiate contact; only reply to conversations that messaged first
+- Navigate-then-assert, so an approved reply cannot land in the wrong chat
+
+WhatsApp has no unsend after 15 minutes. An approved-but-wrong reply is permanent, which is
+why the assert in step 12 aborts rather than attempting to recover.
 
 ### Audit Trail
 
-- Every action logged to SQLite
-- Query: `SELECT * FROM actions WHERE action = 'send_whatsapp' AND created_at > '2026-08-01'`
-- Full traceability: capture → decision → execution
+- Every capture, draft, approval, send, and failure recorded in SQLite
+- Query: `SELECT id, status, chat_id, approved_at FROM actions WHERE created_at > '2026-08-01'`
+- Full traceability: capture → draft → who approved and when → execution → result
+- Accessibility trees logged on failure only
 
 ---
 
