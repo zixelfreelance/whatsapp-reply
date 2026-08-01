@@ -1,6 +1,7 @@
 //! whatsapp-reply orchestrator — HTTP API for message capture + Claude reply loop
 
 pub mod server;
+pub mod governor;
 pub mod models;
 pub mod queue;
 pub mod executor;
