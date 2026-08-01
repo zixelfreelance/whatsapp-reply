@@ -1,0 +1,33 @@
+# Rust
+/target/
+Cargo.lock
+**/*.rs.bk
+*.pdb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Data
+data/*.db
+data/*.db-journal
+logs/
+out/
+
+# Build
+dist/
+ext-build/
+node_modules/
+pnpm-lock.yaml
