@@ -10,7 +10,6 @@ pub mod trace;
 pub use models::{Action, ActionStatus, Capture, EnqueueOutcome};
 pub use queue::Queue;
 
-/// Placeholder server struct (to be implemented in Week 1)
 pub struct Server {
     db_path: String,
     port: u16,
@@ -25,8 +24,15 @@ impl Server {
     }
 
     pub async fn run(&self) -> anyhow::Result<()> {
-        tracing::info!("Server running on port {} with db at {}", self.port, self.db_path);
-        // TODO: Implement HTTP server
-        std::future::pending().await
+        let state = server::AppState::new(Queue::open(&self.db_path)?);
+
+        // Loopback only. This process holds private message content; it must
+        // never be reachable off-host.
+        let addr = std::net::SocketAddr::from(([127, 0, 0, 1], self.port));
+        let listener = tokio::net::TcpListener::bind(addr).await?;
+        tracing::info!(%addr, db = %self.db_path, "orchestrator listening");
+
+        axum::serve(listener, server::router(state)).await?;
+        Ok(())
     }
 }

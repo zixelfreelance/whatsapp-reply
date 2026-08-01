@@ -200,8 +200,12 @@ curl -X POST http://127.0.0.1:8812/capture \
 Response:
 
 ```json
-{ "accepted": 1, "queued": 1, "skipped_not_allowlisted": 0 }
+{ "accepted": 1, "queued": 1, "duplicates": 0 }
 ```
+
+`duplicates` is expected traffic, not an error — WhatsApp Web re-renders constantly, so the
+same message is observed many times. `skipped_not_allowlisted` joins this response when the
+allowlist gate lands.
 
 ### GET /audit?date=2026-08-01
 
